@@ -25,21 +25,25 @@ $app->register(new Herrera\Pdo\PdoServiceProvider(),
 
 
 $app['lateness'] = function () use ($app) {
-    return new \Services\LatenessService();
+    return new \Services\LatenessService($app['pdo'], $app['monolog']);
 };
 
 
-$app->get('/', function (Request $request) use ($app) {
+$app->post('/', function (Request $request) use ($app) {
 
+    $app['monolog']->addInfo(sprintf('Command from user : %s', $request->get('text')));
     $commandArgs = explode(' ', $request->get('text'));
-    if (method_exists($app['lateness'], $commandArgs[0])) {
-        $text = $app['lateness']->$commandArgs[0]($commandArgs);
+    $method = $commandArgs[0];
+    if (method_exists($app['lateness'], $method)) {
+
+        $text = $app['lateness']->$method($commandArgs);
     } else {
-        $text = $app['lateness']->getHelp();
+        $text = $app['lateness']->help();
     }
 
     $content = array(
-        "text" => $text
+        "text" => $text,
+        "mrkdwn" => true
     );
 
     $response = new \Symfony\Component\HttpFoundation\Response();

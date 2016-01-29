@@ -20,14 +20,23 @@ class LatenessService
      */
     private $logger;
 
-    public function __construct()
+    /**
+     * LatenessService constructor.
+     * @param $pdo
+     * @param $monolog
+     */
+    public function __construct($pdo, $monolog)
     {
+        $this->pdo = $pdo;
+        $this->logger = $monolog;
     }
 
-    private function executeStatement(\PDOStatement $statement)
+    private function executeStatement($statement, $params = array())
     {
-        if ($statement->execute() == false) {
-            $message = implode('|', $statement->errorCode());
+        if ($statement->execute($params) == false) {
+            $message = sprintf('Query error code [%s] on %s', $statement->errorCode(), $statement->queryString);
+            $this->logger->addError($message);
+            $message = sprintf('Query error detail : %s', implode('|', $statement->errorInfo()));
             $this->logger->addError($message);
             throw new \Exception($message);
         }
@@ -35,25 +44,31 @@ class LatenessService
 
     private function getNextId($tableName)
     {
-        $statement = $this->pdo->prepare('SELECT MAX(id) + 1 AS next_id FROM :table');
-        $statement->bindParam(':table', $tableName, \PDO::PARAM_STR);
+        $query = 'SELECT MAX(id) + 1 AS next_id FROM ' . $tableName;
+        $statement = $this->pdo->prepare($query);
+        $this->logger->addInfo(sprintf('Execute query : %s', $query));
         $this->executeStatement($statement);
 
         $row = $statement->fetch(\PDO::FETCH_ASSOC);
         $nextId = $row == null ? 1 : $row['next_id'];
 
+        $this->logger->addInfo(sprintf('Next id of table %s is %d', $tableName, $nextId));
+
         return $nextId;
     }
 
-    private function getUserId($userName)
+    private function getUserId($userSlackName)
     {
-        $statement = $this->pdo->prepare('SELECT id FROM users WHERE name = :name');
-        $statement->bindParam(':name', $userName, \PDO::PARAM_STR);
-        $this->executeStatement($statement);
+        $query = 'SELECT id FROM users WHERE slack_name = :slack_name';
+        $statement = $this->pdo->prepare($query);
+        $params = [':slack_name' => $userSlackName];
+
+        $this->logger->addInfo(sprintf('Execute query : %s with param slack_name : %s', $query, $userSlackName));
+        $this->executeStatement($statement, $params);
 
         $row = $statement->fetch(\PDO::FETCH_ASSOC);
         if ($row == null) {
-            $message = sprintf('User name %s is not fond in database', $userName);
+            $message = sprintf('User name %s is not fond in database', $userSlackName);
             $this->logger->addError($message);
             throw new \Exception($message);
         }
@@ -63,7 +78,9 @@ class LatenessService
 
     public function show()
     {
-        $statement = $this->pdo->prepare('SELECT l.day, l.nb_minutes, u.name FROM lateness l JOIN users u ON u.id = l.user_id');
+        $query = 'SELECT l.day, l.nb_minutes, u.name FROM lateness l JOIN users u ON u.id = l.user_id ORDER BY l.day DESC';
+        $statement = $this->pdo->prepare($query);
+        $this->logger->addInfo(sprintf('Execute query : %s', $query));
         $this->executeStatement($statement);
 
         $list = array();
@@ -71,22 +88,24 @@ class LatenessService
             $list[] = sprintf('* %s : %s => %d minutes', $row['name'], $row['day'], $row['nb_minutes']);
         }
 
-        $text = implode("\n", $list);
+        $text = "*Listes des retards* :\n" . implode("\n", $list);
 
         return $text;
     }
 
     public function count()
     {
-        $statement = $this->pdo->prepare('SELECT SUM(l.nb_minutes), u.name FROM lateness l JOIN users u ON u.id = l.user_id GROUP BY u.name');
+        $query = 'SELECT SUM(l.nb_minutes), u.name FROM lateness l JOIN users u ON u.id = l.user_id GROUP BY u.name ORDER BY sum DESC';
+        $statement = $this->pdo->prepare($query);
+        $this->logger->addInfo(sprintf('Execute query : %s', $query));
         $this->executeStatement($statement);
 
         $list = array();
         while ($row = $statement->fetch(\PDO::FETCH_ASSOC)) {
-            $list[] = sprintf('* %s : %d minutes', $row['name'], $row['nb_minutes']);
+            $list[] = sprintf('* %s : %d minutes', $row['name'], $row['sum']);
         }
 
-        $text = implode("\n", $list);
+        $text = "*Compteur des retards* :\n" . implode("\n", $list);
 
         return $text;
     }
@@ -97,32 +116,47 @@ class LatenessService
 
     public function add(array $commandArgs)
     {
-        if (count($commandArgs) < 3 || !is_int($commandArgs[2])) {
+        if (count($commandArgs) < 3 || !is_numeric($commandArgs[2])) {
+            $this->logger->addInfo(sprintf('Not enough param for add command : %s', implode(',', $commandArgs)));
             return $this->help();
         }
 
-        $userName = $commandArgs[1];
+        $userSlackName = $commandArgs[1];
         $nbMinutes = $commandArgs[2];
-
         $id = $this->getNextId(self::TABLE_NAME_LATENESS);
-        $userId = $this->getUserId($userName);
+        $userId = $this->getUserId($userSlackName);
         $currentDate = date('Y/m/d');
 
-        $statement = $this->pdo->prepare("INSERT INTO lateness VALUES (:id, :date, :nb_minute, :user_id)");
-        $statement->bindParam(':id', $id, \PDO::PARAM_INT);
-        $statement->bindParam(':date', $currentDate, \PDO::PARAM_STR);
-        $statement->bindParam(':nb_minute', $nbMinutes, \PDO::PARAM_INT);
-        $statement->bindParam(':user_id', $userId, \PDO::PARAM_INT);
-        $this->executeStatement($statement);
+        $query = "INSERT INTO lateness VALUES (:id, :date, :nb_minute, :user_id)";
+        $statement = $this->pdo->prepare($query);
+
+        $params = [
+            ':id' => $id,
+            ':date' => $currentDate,
+            ':nb_minute' => $nbMinutes,
+            ':user_id' => $userId,
+        ];
+
+        $this->logger->addInfo(
+            sprintf(
+                'Execute query : %s with params id : %d | data : %s | nb_minute : %d | user_id %d',
+                $query, $id, $currentDate, $nbMinutes, $userId
+            )
+        );
+        $this->executeStatement($statement, $params);
+
+        $text = "*Ajout d'un retard* :\n";
+        $text .= sprintf('%d minutes ont été ajoutées à %s', $nbMinutes, $userSlackName);
+
+        return $text;
     }
 
     public function help()
     {
-        $text="List des commandes disponible
-            * show : liste des retards
-            * count : compteur des retart
-            * add {nom} {nombre de minutes}: ajouter un retard
-        ";
+        $text = "*List des commandes disponible* :\n";
+        $text .= "* *show* : liste des retards\n";
+        $text .= "* *count* : compteur des retart\n";
+        $text .= "* *add* _{nom} {nombre de minutes}_: ajouter un retard\n";
 
         return $text;
     }
