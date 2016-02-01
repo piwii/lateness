@@ -86,7 +86,7 @@ class LatenessService
 
     public function show(array $commandArgs)
     {
-        $params = ['action_type' => 'late'];
+        $params = [':sprint_number' => getenv('SPRINT_NUMBER'), 'action_type' => 'late'];
         if (isset($commandArgs[1])) {
             if (!$this->isAuthorizedActionType($commandArgs[1])) {
                 return 'Authorized actions type are ' . implode(',', self::authorizedActionType);
@@ -96,7 +96,7 @@ class LatenessService
 
         $query = 'SELECT l.day, l.nb_minutes, u.name
                   FROM actions l JOIN users u ON u.id = l.user_id
-                  WHERE action_type = :action_type
+                  WHERE action_type = :action_type AND sprint_number = :sprint_number
                   ORDER BY l.day DESC';
         $statement = $this->pdo->prepare($query);
         $this->executeStatement($statement, $params);
@@ -113,7 +113,7 @@ class LatenessService
 
     public function counter(array $commandArgs)
     {
-        $params = ['action_type' => 'late'];
+        $params = [':sprint_number' => getenv('SPRINT_NUMBER'), 'action_type' => 'late'];
         if (isset($commandArgs[1])) {
             if (!$this->isAuthorizedActionType($commandArgs[1])) {
                 // todo: manage error with catchable exception
@@ -124,7 +124,7 @@ class LatenessService
 
         $query = 'SELECT SUM(l.nb_minutes), u.name
                   FROM actions l JOIN users u ON u.id = l.user_id
-                  WHERE action_type = :action_type
+                  WHERE action_type = :action_type AND sprint_number = :sprint_number
                   GROUP BY u.name
                   ORDER BY sum DESC';
         $statement = $this->pdo->prepare($query);
@@ -142,12 +142,14 @@ class LatenessService
 
     public function sum(array $commandArgs)
     {
+        $params = [':sprint_number' => getenv('SPRINT_NUMBER')];
         $query = 'SELECT SUM(l.nb_minutes), u.name, l.action_type
                   FROM actions l JOIN users u ON u.id = l.user_id
+                  WHERE sprint_number = :sprint_number
                   GROUP BY l.action_type, u.name
                   ORDER BY sum DESC';
         $statement = $this->pdo->prepare($query);
-        $this->executeStatement($statement);
+        $this->executeStatement($statement, $params);
 
         $summary = array();
         while ($row = $statement->fetch(\PDO::FETCH_ASSOC)) {
@@ -205,7 +207,7 @@ class LatenessService
         $userId = $this->getUserId($userSlackName);
         $currentDate = date('Y/m/d');
 
-        $query = "INSERT INTO actions VALUES (:id, :date, :nb_minute, :user_id, :action_type)";
+        $query = "INSERT INTO actions VALUES (:id, :date, :nb_minute, :user_id, :action_type, :sprint_number)";
         $statement = $this->pdo->prepare($query);
 
         $params = [
@@ -214,6 +216,7 @@ class LatenessService
             ':nb_minute' => $number,
             ':user_id' => $userId,
             ':action_type' => $actionType,
+            ':sprint_number' => getenv('SPRINT_NUMBER')
         ];
 
         $this->executeStatement($statement, $params);
