@@ -75,7 +75,7 @@ class LatenessService
         return $row['id'];
     }
 
-    private function isAutorizedActionType($actionType)
+    private function isAuthorizedActionType($actionType)
     {
         if (in_array($actionType, self::authorizedActionType)) {
             return true;
@@ -88,7 +88,7 @@ class LatenessService
     {
         $params = ['action_type' => 'late'];
         if (isset($commandArgs[1])) {
-            if (!$this->isAutorizedActionType($commandArgs[1])) {
+            if (!$this->isAuthorizedActionType($commandArgs[1])) {
                 return 'Authorized actions type are ' . implode(',', self::authorizedActionType);
             }
             $params['action_type'] = $commandArgs[1];
@@ -101,9 +101,9 @@ class LatenessService
         $statement = $this->pdo->prepare($query);
         $this->executeStatement($statement, $params);
 
-        $list = array();
+        $list = [];
         while ($row = $statement->fetch(\PDO::FETCH_ASSOC)) {
-            $list[] = sprintf('* %s : %s => %d minutes', $row['name'], $row['day'], $row['nb_minutes']);
+            $list[] = sprintf('* %s : %s => %d', $row['name'], $row['day'], $row['nb_minutes']);
         }
 
         $text = sprintf("*%s list* :\n %s", ucfirst($params['action_type']), implode("\n", $list));
@@ -111,11 +111,12 @@ class LatenessService
         return $text;
     }
 
-    public function count(array $commandArgs)
+    public function counter(array $commandArgs)
     {
         $params = ['action_type' => 'late'];
         if (isset($commandArgs[1])) {
-            if (!$this->isAutorizedActionType($commandArgs[1])) {
+            if (!$this->isAuthorizedActionType($commandArgs[1])) {
+                // todo: manage error with catchable exception
                 return 'Authorized actions tyre are ' . implode(',', self::authorizedActionType);
             }
             $params['action_type'] = $commandArgs[1];
@@ -129,12 +130,55 @@ class LatenessService
         $statement = $this->pdo->prepare($query);
         $this->executeStatement($statement, $params);
 
-        $list = array();
+        $list = [];
         while ($row = $statement->fetch(\PDO::FETCH_ASSOC)) {
-            $list[] = sprintf('* %s : %d minutes', $row['name'], $row['sum']);
+            $list[] = sprintf('* %s : %d', $row['name'], $row['sum']);
         }
 
         $text = sprintf("*%s counter* :\n %s", ucfirst($params['action_type']), implode("\n", $list));
+
+        return $text;
+    }
+
+    public function sum(array $commandArgs)
+    {
+        $query = 'SELECT SUM(l.nb_minutes), u.name, l.action_type
+                  FROM actions l JOIN users u ON u.id = l.user_id
+                  GROUP BY l.action_type, u.name
+                  ORDER BY sum DESC';
+        $statement = $this->pdo->prepare($query);
+        $this->executeStatement($statement);
+
+        $summary = array();
+        while ($row = $statement->fetch(\PDO::FETCH_ASSOC)) {
+            if (!isset($summary[$row['name']])) {
+                $summary[$row['name']] = array();
+            }
+            $summary[$row['name']][$row['action_type']] = $row['sum'];
+            $this->logger->addDebug('summary[' . $row['name'] . '][' . $row['action_type'] . '] = ' .$row['sum']);
+        }
+
+        // todo: get values from configuration
+        $weightLate = 10;
+        $weightPushUp = 1;
+        $weightCanning = 1;
+        $weightBreakfast = 10;
+
+        $list = [];
+        foreach ($summary as $userName => $userSummary) {
+            // Initialize user action type value to 0 if it does not exist
+            foreach (self::authorizedActionType as $actionType) {
+                $userSummary[$actionType] = isset($userSummary[$actionType]) ? $userSummary[$actionType] : 0;
+            }
+            $point = $userSummary['late'] * $weightLate
+                - $userSummary['push-up'] * $weightPushUp
+                - $userSummary['canning'] * $weightCanning
+                - $userSummary['breakfast'] * $weightBreakfast;
+            $list[] = sprintf('* %s : %d', $userName, $point);
+            $this->logger->addDebug(sprintf('* %s : %d', $userName, $point));
+        }
+
+        $text = sprintf("*Summary points* :%s\n", implode("\n", $list));
 
         return $text;
     }
@@ -148,6 +192,11 @@ class LatenessService
             $this->logger->addInfo($message);
             return $message;
         }
+
+        if (!$this->isAuthorizedActionType($commandArgs[1])) {
+            return 'Authorized actions tyre are ' . implode(',', self::authorizedActionType);
+        }
+
 
         $actionType = $commandArgs[1];
         $userSlackName = $commandArgs[2];
@@ -175,11 +224,16 @@ class LatenessService
         return $text;
     }
 
+    /**
+     * todo: display detailed help by command
+     * @return string $text
+     */
     public function help()
     {
         $text = "*List of available command* :\n";
         $text .= "* *show* : lateness list\n";
-        $text .= "* *count* : lateness counter\n";
+        $text .= "* *counter* : lateness counter\n";
+        $text .= "* *sum* : lateness summary\n";
         $text .= "* *add* _[action_type] [slack_name] [number]_: add action to someone\n";
 
         return $text;
