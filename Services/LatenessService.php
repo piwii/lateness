@@ -2,17 +2,15 @@
 
 namespace Services;
 
+use Models\ActionModel;
+use Models\UserModel;
 use Monolog\Logger;
 use Silex\Application;
+
 
 class LatenessService
 {
      const authorizedActionType = ['late', 'push-up', 'canning', 'breakfast'];
-
-    /**
-     * @var \PDO
-     */
-    private $pdo;
 
     /**
      * @var Logger
@@ -20,59 +18,26 @@ class LatenessService
     private $logger;
 
     /**
+     * @var ActionModel
+     */
+    private $actionModel;
+
+    /**
+     * @var UserModel
+     */
+    private $userModel;
+
+    /**
      * LatenessService constructor.
-     * @param \PDO $pdo
+     * @param UserModel $userModel
+     * @param ActionModel $actionModel
      * @param Logger $monolog
      */
-    public function __construct(\PDO $pdo, Logger $monolog)
+    public function __construct(UserModel $userModel, ActionModel $actionModel, Logger $monolog)
     {
-        $this->pdo = $pdo;
+        $this->userModel = $userModel;
+        $this->actionModel = $actionModel;
         $this->logger = $monolog;
-    }
-
-    private function executeStatement($statement, $params = array())
-    {
-        if (($result = $statement->execute($params)) == false) {
-            $message = sprintf('Query error code [%s] on %s', $statement->errorCode(), $statement->queryString);
-            $this->logger->addError($message);
-            $message = sprintf('Query error detail : %s', implode('|', $statement->errorInfo()));
-            $this->logger->addError($message);
-            throw new \Exception($message);
-        }
-
-        return $result;
-    }
-
-    private function getNextId($tableName)
-    {
-        $query = 'SELECT MAX(id) + 1 AS next_id FROM ' . $tableName;
-        $statement = $this->pdo->prepare($query);
-        $this->executeStatement($statement);
-
-        $row = $statement->fetch(\PDO::FETCH_ASSOC);
-        $nextId = $row == null ? 1 : $row['next_id'];
-
-        $this->logger->addInfo(sprintf('Next id of table %s is %d', $tableName, $nextId));
-
-        return $nextId;
-    }
-
-    private function getUserId($userSlackName)
-    {
-        $query = 'SELECT id FROM users WHERE slack_name = :slack_name';
-        $statement = $this->pdo->prepare($query);
-        $params = [':slack_name' => $userSlackName];
-
-        $this->executeStatement($statement, $params);
-
-        $row = $statement->fetch(\PDO::FETCH_ASSOC);
-        if ($row == null) {
-            $message = sprintf('User name %s is not found in database', $userSlackName);
-            $this->logger->addError($message);
-            throw new \Exception($message);
-        }
-
-        return $row['id'];
     }
 
     private function isAuthorizedActionType($actionType)
@@ -84,25 +49,26 @@ class LatenessService
         return false;
     }
 
-    public function show(array $commandArgs)
+    private function getActionTypeFromCommand($commandArgs)
     {
-        $params = [':sprint_number' => getenv('SPRINT_NUMBER'), 'action_type' => 'late'];
-        if (isset($commandArgs[1])) {
-            if (!$this->isAuthorizedActionType($commandArgs[1])) {
-                $this->help(['help', 'counter']);
-            }
-            $params['action_type'] = $commandArgs[1];
+        $actionType = self::authorizedActionType[0];
+        if (isset($commandArgs[1]) && $this->isAuthorizedActionType($commandArgs[1])) {
+            $actionType = $commandArgs[1];
         }
 
-        $query = 'SELECT l.day, l.nb_minutes, u.name
-                  FROM actions l JOIN users u ON u.id = l.user_id
-                  WHERE action_type = :action_type AND sprint_number = :sprint_number
-                  ORDER BY l.day DESC';
-        $statement = $this->pdo->prepare($query);
-        $this->executeStatement($statement, $params);
+        return $actionType;
+    }
 
+    public function show(array $commandArgs)
+    {
+        $params = [
+            ':sprint_number' => getenv('SPRINT_NUMBER'),
+            'action_type' => $this->getActionTypeFromCommand($commandArgs)
+        ];
+
+        $dbResult = $this->actionModel->getList($params);
         $list = [];
-        while ($row = $statement->fetch(\PDO::FETCH_ASSOC)) {
+        foreach ($dbResult as $row) {
             $list[] = sprintf('* %s : %s => %d', $row['name'], $row['day'], $row['nb_minutes']);
         }
 
@@ -113,25 +79,14 @@ class LatenessService
 
     public function counter(array $commandArgs)
     {
-        $params = [':sprint_number' => getenv('SPRINT_NUMBER'), 'action_type' => 'late'];
-        if (isset($commandArgs[1])) {
-            if (!$this->isAuthorizedActionType($commandArgs[1])) {
-                // todo: manage error with catchable exception
-                $this->help(['help', 'counter']);
-            }
-            $params['action_type'] = $commandArgs[1];
-        }
+        $params = [
+            ':sprint_number' => getenv('SPRINT_NUMBER'),
+            'action_type' => $this->getActionTypeFromCommand($commandArgs)
+        ];
 
-        $query = 'SELECT SUM(l.nb_minutes), u.name
-                  FROM actions l JOIN users u ON u.id = l.user_id
-                  WHERE action_type = :action_type AND sprint_number = :sprint_number
-                  GROUP BY u.name
-                  ORDER BY sum DESC';
-        $statement = $this->pdo->prepare($query);
-        $this->executeStatement($statement, $params);
-
+        $dbResult = $this->actionModel->getCounter($params);
         $list = [];
-        while ($row = $statement->fetch(\PDO::FETCH_ASSOC)) {
+        foreach ($dbResult as $row) {
             $list[] = sprintf('* %s : %d', $row['name'], $row['sum']);
         }
 
@@ -143,16 +98,10 @@ class LatenessService
     public function sum()
     {
         $params = [':sprint_number' => getenv('SPRINT_NUMBER')];
-        $query = 'SELECT SUM(l.nb_minutes), u.name, l.action_type
-                  FROM actions l JOIN users u ON u.id = l.user_id
-                  WHERE sprint_number = :sprint_number
-                  GROUP BY l.action_type, u.name
-                  ORDER BY sum DESC';
-        $statement = $this->pdo->prepare($query);
-        $this->executeStatement($statement, $params);
 
+        $dbResult = $this->actionModel->getSummary($params);
         $summary = array();
-        while ($row = $statement->fetch(\PDO::FETCH_ASSOC)) {
+        foreach ($dbResult as $row) {
             if (!isset($summary[$row['name']])) {
                 $summary[$row['name']] = array();
             }
@@ -175,10 +124,10 @@ class LatenessService
                 - $userSummary['push-up'] * $weightPushUp
                 - $userSummary['canning'] * $weightCanning
                 - $userSummary['breakfast'] * $weightBreakfast;
-            $list[] = sprintf('* %s : %d points left', $userName, $point);
+            $list[] = sprintf('* %s : %d points', $userName, $point);
         }
 
-        $text = sprintf("*Summary points* :%s\n", implode("\n", $list));
+        $text = sprintf("*Summary points* :\n%s", implode("\n", $list));
 
         return $text;
     }
@@ -190,25 +139,19 @@ class LatenessService
         }
 
         $userSlackName = $commandArgs[1];
-        $id = $this->getNextId('actions');
-        $currentDate = date('Y/m/d');
         $number = $commandArgs[3];
-        $userId = $this->getUserId($userSlackName);
         $actionType = $commandArgs[2];
 
-        $query = "INSERT INTO actions VALUES (:id, :date, :nb_minute, :user_id, :action_type, :sprint_number)";
-        $statement = $this->pdo->prepare($query);
-
         $params = [
-            ':id' => $id,
-            ':date' => $currentDate,
+            ':id' => $this->actionModel->getNextId(),
+            ':date' => date('Y/m/d'),
             ':nb_minute' => $number,
-            ':user_id' => $userId,
+            ':user_id' => $this->userModel->getUserId($userSlackName),
             ':action_type' => $actionType,
             ':sprint_number' => getenv('SPRINT_NUMBER')
         ];
 
-        $this->executeStatement($statement, $params);
+        $this->actionModel->insert($params);
 
         $text = "*Add $actionType* :\n";
         $text .= sprintf('%d %s has been added to %s', $number, $actionType, $userSlackName);

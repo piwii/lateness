@@ -10,7 +10,7 @@ https://api.slack.com/docs/formatting
 
 ## Todo
 
-* Manage errors
+* Manage errors with exception
 * Write method documentation
-* Split model from service
+* Manage black
 
