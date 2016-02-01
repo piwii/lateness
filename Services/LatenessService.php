@@ -67,7 +67,7 @@ class LatenessService
 
         $row = $statement->fetch(\PDO::FETCH_ASSOC);
         if ($row == null) {
-            $message = sprintf('User name %s is not fond in database', $userSlackName);
+            $message = sprintf('User name %s is not found in database', $userSlackName);
             $this->logger->addError($message);
             throw new \Exception($message);
         }
@@ -86,10 +86,10 @@ class LatenessService
 
     public function show(array $commandArgs)
     {
-        $params = ['action_type' => 'lateness'];
+        $params = ['action_type' => 'late'];
         if (isset($commandArgs[1])) {
             if (!$this->isAutorizedActionType($commandArgs[1])) {
-                return 'Authorized actions tyre are ' . implode(',', self::authorizedActionType);
+                return 'Authorized actions type are ' . implode(',', self::authorizedActionType);
             }
             $params['action_type'] = $commandArgs[1];
         }
@@ -106,14 +106,14 @@ class LatenessService
             $list[] = sprintf('* %s : %s => %d minutes', $row['name'], $row['day'], $row['nb_minutes']);
         }
 
-        $text = "*Listes des retards* :\n" . implode("\n", $list);
+        $text = sprintf("*%s list* :\n %s", ucfirst($params['action_type']), implode("\n", $list));
 
         return $text;
     }
 
     public function count(array $commandArgs)
     {
-        $params = ['action_type' => 'lateness'];
+        $params = ['action_type' => 'late'];
         if (isset($commandArgs[1])) {
             if (!$this->isAutorizedActionType($commandArgs[1])) {
                 return 'Authorized actions tyre are ' . implode(',', self::authorizedActionType);
@@ -134,16 +134,17 @@ class LatenessService
             $list[] = sprintf('* %s : %d minutes', $row['name'], $row['sum']);
         }
 
-        $text = "*Compteur des retards* :\n" . implode("\n", $list);
+        $text = sprintf("*%s counter* :\n %s", ucfirst($params['action_type']), implode("\n", $list));
 
         return $text;
     }
 
     public function add(array $commandArgs)
     {
-        if (count($commandArgs) < 4 || !is_numeric($commandArgs[2])) {
-            $message = 'Not enough param for add command, syntax is "add [type] [slack_name] [number]' . "\n";
-            $message .= "*Exemple*:\n _add pompe @pierre-yves 10_\n_add retard @pierre-yves 10_\n";
+        if (count($commandArgs) < 4 || !is_numeric($commandArgs[3])) {
+            $message = "Not enough param for add command, right syntax is 'add [type] [slack_name] [number]' \n";
+            $message .= sprintf('You provide : %s', implode(' ', $commandArgs));
+            $message .= "*Exemple*:\n _add push-up @pierre-yves 10_\n_add late @pierre-yves 10_\n";
             $this->logger->addInfo($message);
             return $message;
         }
@@ -168,8 +169,8 @@ class LatenessService
 
         $this->executeStatement($statement, $params);
 
-        $text = "*Ajout de $actionType* :\n";
-        $text .= sprintf('%d %s ont été ajoutées à %s', $number, $actionType, $userSlackName);
+        $text = "*Add $actionType* :\n";
+        $text .= sprintf('%d %s has been added to %s', $number, $actionType, $userSlackName);
 
         return $text;
     }
