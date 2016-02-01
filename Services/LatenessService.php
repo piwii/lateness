@@ -7,8 +7,7 @@ use Silex\Application;
 
 class LatenessService
 {
-    const TABLE_NAME_USERS = 'users';
-    const TABLE_NAME_LATENESS = 'lateness';
+     const authorizedActionType = ['late', 'push-up', 'canning', 'breakfast'];
 
     /**
      * @var \PDO
@@ -22,10 +21,10 @@ class LatenessService
 
     /**
      * LatenessService constructor.
-     * @param $pdo
-     * @param $monolog
+     * @param \PDO $pdo
+     * @param Logger $monolog
      */
-    public function __construct($pdo, $monolog)
+    public function __construct(\PDO $pdo, Logger $monolog)
     {
         $this->pdo = $pdo;
         $this->logger = $monolog;
@@ -33,20 +32,21 @@ class LatenessService
 
     private function executeStatement($statement, $params = array())
     {
-        if ($statement->execute($params) == false) {
+        if (($result = $statement->execute($params)) == false) {
             $message = sprintf('Query error code [%s] on %s', $statement->errorCode(), $statement->queryString);
             $this->logger->addError($message);
             $message = sprintf('Query error detail : %s', implode('|', $statement->errorInfo()));
             $this->logger->addError($message);
             throw new \Exception($message);
         }
+
+        return $result;
     }
 
     private function getNextId($tableName)
     {
         $query = 'SELECT MAX(id) + 1 AS next_id FROM ' . $tableName;
         $statement = $this->pdo->prepare($query);
-        $this->logger->addInfo(sprintf('Execute query : %s', $query));
         $this->executeStatement($statement);
 
         $row = $statement->fetch(\PDO::FETCH_ASSOC);
@@ -63,7 +63,6 @@ class LatenessService
         $statement = $this->pdo->prepare($query);
         $params = [':slack_name' => $userSlackName];
 
-        $this->logger->addInfo(sprintf('Execute query : %s with param slack_name : %s', $query, $userSlackName));
         $this->executeStatement($statement, $params);
 
         $row = $statement->fetch(\PDO::FETCH_ASSOC);
@@ -76,12 +75,31 @@ class LatenessService
         return $row['id'];
     }
 
-    public function show()
+    private function isAutorizedActionType($actionType)
     {
-        $query = 'SELECT l.day, l.nb_minutes, u.name FROM lateness l JOIN users u ON u.id = l.user_id ORDER BY l.day DESC';
+        if (in_array($actionType, self::authorizedActionType)) {
+            return true;
+        }
+
+        return false;
+    }
+
+    public function show(array $commandArgs)
+    {
+        $params = ['action_type' => 'lateness'];
+        if (isset($commandArgs[1])) {
+            if (!$this->isAutorizedActionType($commandArgs[1])) {
+                return 'Authorized actions tyre are ' . implode(',', self::authorizedActionType);
+            }
+            $params['action_type'] = $commandArgs[1];
+        }
+
+        $query = 'SELECT l.day, l.nb_minutes, u.name
+                  FROM actions l JOIN users u ON u.id = l.user_id
+                  WHERE action_type = :action_type
+                  ORDER BY l.day DESC';
         $statement = $this->pdo->prepare($query);
-        $this->logger->addInfo(sprintf('Execute query : %s', $query));
-        $this->executeStatement($statement);
+        $this->executeStatement($statement, $params);
 
         $list = array();
         while ($row = $statement->fetch(\PDO::FETCH_ASSOC)) {
@@ -93,12 +111,23 @@ class LatenessService
         return $text;
     }
 
-    public function count()
+    public function count(array $commandArgs)
     {
-        $query = 'SELECT SUM(l.nb_minutes), u.name FROM lateness l JOIN users u ON u.id = l.user_id GROUP BY u.name ORDER BY sum DESC';
+        $params = ['action_type' => 'lateness'];
+        if (isset($commandArgs[1])) {
+            if (!$this->isAutorizedActionType($commandArgs[1])) {
+                return 'Authorized actions tyre are ' . implode(',', self::authorizedActionType);
+            }
+            $params['action_type'] = $commandArgs[1];
+        }
+
+        $query = 'SELECT SUM(l.nb_minutes), u.name
+                  FROM actions l JOIN users u ON u.id = l.user_id
+                  WHERE action_type = :action_type
+                  GROUP BY u.name
+                  ORDER BY sum DESC';
         $statement = $this->pdo->prepare($query);
-        $this->logger->addInfo(sprintf('Execute query : %s', $query));
-        $this->executeStatement($statement);
+        $this->executeStatement($statement, $params);
 
         $list = array();
         while ($row = $statement->fetch(\PDO::FETCH_ASSOC)) {
@@ -110,53 +139,47 @@ class LatenessService
         return $text;
     }
 
-    public function iAmHere($name)
-    {
-    }
-
     public function add(array $commandArgs)
     {
-        if (count($commandArgs) < 3 || !is_numeric($commandArgs[2])) {
-            $this->logger->addInfo(sprintf('Not enough param for add command : %s', implode(',', $commandArgs)));
-            return $this->help();
+        if (count($commandArgs) < 4 || !is_numeric($commandArgs[2])) {
+            $message = 'Not enough param for add command, syntax is "add [type] [slack_name] [number]' . "\n";
+            $message .= "*Exemple*:\n _add pompe @pierre-yves 10_\n_add retard @pierre-yves 10_\n";
+            $this->logger->addInfo($message);
+            return $message;
         }
 
-        $userSlackName = $commandArgs[1];
-        $nbMinutes = $commandArgs[2];
-        $id = $this->getNextId(self::TABLE_NAME_LATENESS);
+        $actionType = $commandArgs[1];
+        $userSlackName = $commandArgs[2];
+        $number = $commandArgs[3];
+        $id = $this->getNextId('actions');
         $userId = $this->getUserId($userSlackName);
         $currentDate = date('Y/m/d');
 
-        $query = "INSERT INTO lateness VALUES (:id, :date, :nb_minute, :user_id)";
+        $query = "INSERT INTO actions VALUES (:id, :date, :nb_minute, :user_id, :action_type)";
         $statement = $this->pdo->prepare($query);
 
         $params = [
             ':id' => $id,
             ':date' => $currentDate,
-            ':nb_minute' => $nbMinutes,
+            ':nb_minute' => $number,
             ':user_id' => $userId,
+            ':action_type' => $actionType,
         ];
 
-        $this->logger->addInfo(
-            sprintf(
-                'Execute query : %s with params id : %d | data : %s | nb_minute : %d | user_id %d',
-                $query, $id, $currentDate, $nbMinutes, $userId
-            )
-        );
         $this->executeStatement($statement, $params);
 
-        $text = "*Ajout d'un retard* :\n";
-        $text .= sprintf('%d minutes ont été ajoutées à %s', $nbMinutes, $userSlackName);
+        $text = "*Ajout de $actionType* :\n";
+        $text .= sprintf('%d %s ont été ajoutées à %s', $number, $actionType, $userSlackName);
 
         return $text;
     }
 
     public function help()
     {
-        $text = "*List des commandes disponible* :\n";
-        $text .= "* *show* : liste des retards\n";
-        $text .= "* *count* : compteur des retart\n";
-        $text .= "* *add* _{nom} {nombre de minutes}_: ajouter un retard\n";
+        $text = "*List of available command* :\n";
+        $text .= "* *show* : lateness list\n";
+        $text .= "* *count* : lateness counter\n";
+        $text .= "* *add* _[action_type] [slack_name] [number]_: add action to someone\n";
 
         return $text;
     }
