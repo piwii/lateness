@@ -31,7 +31,7 @@ $app['lateness'] = function () use ($app) {
 
 $app->post('/', function (Request $request) use ($app) {
 
-    $app['monolog']->addInfo(sprintf('Command from user : %s', $request->get('text')));
+    $app['monolog']->addDebug(sprintf('Command from user : %s', $request->get('text')));
     $commandArgs = explode(' ', $request->get('text'));
     $method = $commandArgs[0];
     if (method_exists($app['lateness'], $method)) {
@@ -43,7 +43,7 @@ $app->post('/', function (Request $request) use ($app) {
 
     $content = array(
         "text" => $text,
-        "mrkdwn" => true
+        "mrkdwn" => true,
     );
 
     $response = new \Symfony\Component\HttpFoundation\Response();
@@ -55,8 +55,9 @@ $app->post('/', function (Request $request) use ($app) {
 });
 
 $app->run();
-
-/*  $attachments = new \stdClass;
+#878787
+/*
+  $attachments = new \stdClass;
   $attachments->text = "Partly cloudy today and tomorrow";
   $content = array(
       "text" =>  $app['request']->get('user_name'),

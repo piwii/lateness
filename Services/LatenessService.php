@@ -89,7 +89,7 @@ class LatenessService
         $params = [':sprint_number' => getenv('SPRINT_NUMBER'), 'action_type' => 'late'];
         if (isset($commandArgs[1])) {
             if (!$this->isAuthorizedActionType($commandArgs[1])) {
-                return 'Authorized actions type are ' . implode(',', self::authorizedActionType);
+                $this->help(['help', 'counter']);
             }
             $params['action_type'] = $commandArgs[1];
         }
@@ -117,7 +117,7 @@ class LatenessService
         if (isset($commandArgs[1])) {
             if (!$this->isAuthorizedActionType($commandArgs[1])) {
                 // todo: manage error with catchable exception
-                return 'Authorized actions tyre are ' . implode(',', self::authorizedActionType);
+                $this->help(['help', 'counter']);
             }
             $params['action_type'] = $commandArgs[1];
         }
@@ -140,7 +140,7 @@ class LatenessService
         return $text;
     }
 
-    public function sum(array $commandArgs)
+    public function sum()
     {
         $params = [':sprint_number' => getenv('SPRINT_NUMBER')];
         $query = 'SELECT SUM(l.nb_minutes), u.name, l.action_type
@@ -157,7 +157,6 @@ class LatenessService
                 $summary[$row['name']] = array();
             }
             $summary[$row['name']][$row['action_type']] = $row['sum'];
-            $this->logger->addDebug('summary[' . $row['name'] . '][' . $row['action_type'] . '] = ' .$row['sum']);
         }
 
         // todo: get values from configuration
@@ -176,8 +175,7 @@ class LatenessService
                 - $userSummary['push-up'] * $weightPushUp
                 - $userSummary['canning'] * $weightCanning
                 - $userSummary['breakfast'] * $weightBreakfast;
-            $list[] = sprintf('* %s : %d', $userName, $point);
-            $this->logger->addDebug(sprintf('* %s : %d', $userName, $point));
+            $list[] = sprintf('* %s : %d points left', $userName, $point);
         }
 
         $text = sprintf("*Summary points* :%s\n", implode("\n", $list));
@@ -187,25 +185,16 @@ class LatenessService
 
     public function add(array $commandArgs)
     {
-        if (count($commandArgs) < 4 || !is_numeric($commandArgs[3])) {
-            $message = "Not enough param for add command, right syntax is 'add [type] [slack_name] [number]' \n";
-            $message .= sprintf('You provide : %s', implode(' ', $commandArgs));
-            $message .= "*Exemple*:\n _add push-up @pierre-yves 10_\n_add late @pierre-yves 10_\n";
-            $this->logger->addInfo($message);
-            return $message;
+        if (count($commandArgs) < 4 || !is_numeric($commandArgs[3]) || !$this->isAuthorizedActionType($commandArgs[2])) {
+            return $this->help(['help', 'add']);
         }
 
-        if (!$this->isAuthorizedActionType($commandArgs[1])) {
-            return 'Authorized actions tyre are ' . implode(',', self::authorizedActionType);
-        }
-
-
-        $actionType = $commandArgs[1];
-        $userSlackName = $commandArgs[2];
-        $number = $commandArgs[3];
+        $userSlackName = $commandArgs[1];
         $id = $this->getNextId('actions');
-        $userId = $this->getUserId($userSlackName);
         $currentDate = date('Y/m/d');
+        $number = $commandArgs[3];
+        $userId = $this->getUserId($userSlackName);
+        $actionType = $commandArgs[2];
 
         $query = "INSERT INTO actions VALUES (:id, :date, :nb_minute, :user_id, :action_type, :sprint_number)";
         $statement = $this->pdo->prepare($query);
@@ -228,16 +217,45 @@ class LatenessService
     }
 
     /**
-     * todo: display detailed help by command
+     * Display slack bot help
+     * @param array $commandArgs
      * @return string $text
      */
-    public function help()
+    public function help(array $commandArgs = [])
     {
         $text = "*List of available command* :\n";
-        $text .= "* *show* : lateness list\n";
-        $text .= "* *counter* : lateness counter\n";
-        $text .= "* *sum* : lateness summary\n";
-        $text .= "* *add* _[action_type] [slack_name] [number]_: add action to someone\n";
+        $text .= "* *show* : actions list\n";
+        $text .= "* *counter* : actions counter\n";
+        $text .= "* *sum* : summary points\n";
+        $text .= "* *add* : add action to someone\n";
+        $text .= "* *help* _[command]_ : display command detail\n";
+
+        if (isset($commandArgs[1])) {
+            if ($commandArgs[1] == 'show') {
+                $text = "*Detail for show command* :\n";
+                $text .= "show [slack_name] [action_type]\n";
+                $text .= "Example 1 : show\n";
+                $text .= "Example 3 : show late\n";
+            } else if ($commandArgs[1] == 'counter') {
+                $text = "*Detail for counter command* :\n";
+                $text .= "counter [slack_name] [action_type]\n";
+                $text .= "Example 1 : counter\n";
+                $text .= "Example 3 : counter late\n";
+            } else if ($commandArgs[1] == 'sum') {
+                $text = "*Detail for sum command* :\n";
+                $text .= "sum [slack_name]\n";
+                $text .= "Example 1 : sum\n";
+            } else if ($commandArgs[1] == 'add') {
+                $text = "*Detail for add command* :\n";
+                $text .= "add [slack_name] [action_type] [number]\n";
+                $text .= "Example 1 : add @pierre-yves push-up 20\n";
+                $text .= "Example 2 : add @pierre-yves late 10\n";
+                $text .= "Example 3 : add @pierre-yves canning 60\n";
+                $text .= "Example 3 : add @pierre-yves breakfast 10\n";
+            }
+        }
+
+        $text .= sprintf("\nAuthorized actions type are : %s", implode(', ', self::authorizedActionType));
 
         return $text;
     }
