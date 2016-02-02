@@ -20,6 +20,15 @@ class ActionModel
         $this->pdo = $pdo;
     }
 
+    /**
+     * Execute request
+     *
+     * @param PdoStatement $statement
+     * @param array $params
+     *
+     * @return bool
+     * @throws \Exception
+     */
     private function executeStatement(PDOStatement $statement, $params = array())
     {
         if (($result = $statement->execute($params)) == false) {
@@ -30,6 +39,12 @@ class ActionModel
         return $result;
     }
 
+    /**
+     * Get next id of actions table
+     *
+     * @return int
+     * @throws \Exception
+     */
     public function getNextId()
     {
         $query = 'SELECT MAX(id) + 1 AS next_id FROM actions';
@@ -43,6 +58,14 @@ class ActionModel
     }
 
 
+    /**
+     * Get list of actions
+     *
+     * @param $params
+     *
+     * @return array
+     * @throws \Exception
+     */
     public function getList($params)
     {
         $query = 'SELECT l.day, l.nb_minutes, u.name
@@ -57,6 +80,14 @@ class ActionModel
         return $dbResult;
     }
 
+    /**
+     * Get counter of actions
+     *
+     * @param $params
+     *
+     * @return array
+     * @throws \Exception
+     */
     public function getCounter($params)
     {
         $query = 'SELECT SUM(l.nb_minutes), u.name
@@ -72,6 +103,14 @@ class ActionModel
         return $dbResult;
     }
 
+    /**
+     * Get summary of actions
+     *
+     * @param $params
+     *
+     * @return array
+     * @throws \Exception
+     */
     public function getSummary($params)
     {
         $query = 'SELECT SUM(l.nb_minutes), u.name, l.action_type
@@ -87,6 +126,12 @@ class ActionModel
         return $dbResult;
     }
 
+    /**
+     * Insert a new action
+     *
+     * @param $params
+     * @throws \Exception
+     */
     public function insert($params)
     {
         $query = "INSERT INTO actions VALUES (:id, :date, :nb_minute, :user_id, :action_type, :sprint_number)";

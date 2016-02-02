@@ -2,7 +2,7 @@
 
 require_once __DIR__.'/../vendor/autoload.php';
 
-require_once'../Services/LatenessService.php';
+require_once '../Services/LatenessService.php';
 require_once '../Models/ActionModel.php';
 require_once '../Models/UserModel.php';
 
@@ -39,12 +39,12 @@ $app['lateness'] = function () use ($app) {
 };
 
 
-$app->post('/', function (Request $request) use ($app) {
+$app->post('/', function (Request $request) use ($app)
+{
     $app['monolog']->addDebug(sprintf('Command from user : %s', $request->get('text')));
     $commandArgs = explode(' ', $request->get('text'));
     $method = $commandArgs[0];
     if (method_exists($app['lateness'], $method)) {
-
         $text = $app['lateness']->$method($commandArgs);
     } else {
         $text = $app['lateness']->help();

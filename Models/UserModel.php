@@ -20,6 +20,15 @@ class UserModel
         $this->pdo = $pdo;
     }
 
+    /**
+     * Execute request
+     *
+     * @param PdoStatement $statement
+     * @param array $params
+     *
+     * @return bool
+     * @throws \Exception
+     */
     private function executeStatement(PDOStatement $statement, $params = array())
     {
         if (($result = $statement->execute($params)) == false) {
@@ -30,6 +39,14 @@ class UserModel
         return $result;
     }
 
+    /**
+     * Get user id function of his slack name
+     *
+     * @param $userSlackName
+     *
+     * @return mixed
+     * @throws \Exception
+     */
     public function getUserId($userSlackName)
     {
         $query = 'SELECT id FROM users WHERE slack_name = :slack_name';

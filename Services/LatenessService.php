@@ -40,6 +40,13 @@ class LatenessService
         $this->logger = $monolog;
     }
 
+    /**
+     * Verify if action type is authorized
+     *
+     * @param $actionType
+     *
+     * @return bool
+     */
     private function isAuthorizedActionType($actionType)
     {
         if (in_array($actionType, self::authorizedActionType)) {
@@ -49,6 +56,13 @@ class LatenessService
         return false;
     }
 
+    /**
+     * Get action type from command, default type is late
+     *
+     * @param $commandArgs
+     *
+     * @return mixed
+     */
     private function getActionTypeFromCommand($commandArgs)
     {
         $actionType = self::authorizedActionType[0];
@@ -59,6 +73,13 @@ class LatenessService
         return $actionType;
     }
 
+    /**
+     * Show actions lists of everyone during the current sprint
+     *
+     * @param array $commandArgs
+     *
+     * @return string
+     */
     public function show(array $commandArgs)
     {
         $params = [
@@ -77,6 +98,13 @@ class LatenessService
         return $text;
     }
 
+    /**
+     * Sum all actions of same type during the current sprint
+     *
+     * @param array $commandArgs
+     *
+     * @return string
+     */
     public function counter(array $commandArgs)
     {
         $params = [
@@ -95,6 +123,11 @@ class LatenessService
         return $text;
     }
 
+    /**
+     * Summary point of everyone during the current sprint
+     *
+     * @return string everyone
+     */
     public function sum()
     {
         $params = [':sprint_number' => getenv('SPRINT_NUMBER')];
@@ -132,6 +165,14 @@ class LatenessService
         return $text;
     }
 
+    /**
+     * Add action to someone
+     *
+     * @param array $commandArgs
+     *
+     * @return string
+     * @throws \Exception
+     */
     public function add(array $commandArgs)
     {
         if (count($commandArgs) < 4 || !is_numeric($commandArgs[3]) || !$this->isAuthorizedActionType($commandArgs[2])) {
@@ -161,7 +202,9 @@ class LatenessService
 
     /**
      * Display slack bot help
+     *
      * @param array $commandArgs
+     *
      * @return string $text
      */
     public function help(array $commandArgs = [])
