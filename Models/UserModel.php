@@ -2,9 +2,7 @@
 
 namespace Models;
 
-use Herrera\Pdo\PdoStatement;
-
-class UserModel
+class UserModel extends AbstractModel
 {
     /**
      * @var \PDO
@@ -18,25 +16,6 @@ class UserModel
     public function __construct(\PDO $pdo)
     {
         $this->pdo = $pdo;
-    }
-
-    /**
-     * Execute request
-     *
-     * @param PdoStatement $statement
-     * @param array $params
-     *
-     * @return bool
-     * @throws \Exception
-     */
-    private function executeStatement(PDOStatement $statement, $params = array())
-    {
-        if (($result = $statement->execute($params)) == false) {
-            $message = sprintf('Query error on %s [error code : %s]', $statement->queryString, $statement->errorCode());
-            throw new \Exception($message);
-        }
-
-        return $result;
     }
 
     /**
@@ -63,5 +42,4 @@ class UserModel
 
         return $row['id'];
     }
-
 }
