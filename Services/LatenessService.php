@@ -175,8 +175,13 @@ class LatenessService
      */
     public function add(array $commandArgs)
     {
-        if (count($commandArgs) < 4 || !is_numeric($commandArgs[3]) || !$this->isAuthorizedActionType($commandArgs[2])) {
-            return $this->help(['help', 'add']);
+        if (count($commandArgs) < 4 || !$this->isAuthorizedActionType($commandArgs[2])) {
+            $message = 'Three params are mandatory and second param must be in ' . implode(', ', self::authorizedActionType);
+            return $this->help(['help', 'add', $message]);
+        }
+
+        if (!is_numeric($commandArgs[3]) || $commandArgs[3] <= 0) {
+            return $this->help(['help', 'add', 'Third argument must be positive number']);
         }
 
         $userSlackName = $commandArgs[1];
@@ -209,7 +214,12 @@ class LatenessService
      */
     public function help(array $commandArgs = [])
     {
-        $text = "*List of available command* :\n";
+        $text = '';
+        if (isset($commandArgs[2])) {
+            $text = '*Error : ' . $commandArgs[2] . "*\n\n";
+        }
+
+        $text .= "*List of available command* :\n";
         $text .= "* *show* : actions list\n";
         $text .= "* *counter* : actions counter\n";
         $text .= "* *sum* : summary points\n";
@@ -218,21 +228,21 @@ class LatenessService
 
         if (isset($commandArgs[1])) {
             if ($commandArgs[1] == 'show') {
-                $text = "*Detail for show command* :\n";
+                $text .= "*Detail for show command* :\n";
                 $text .= "show [slack_name] [action_type]\n";
                 $text .= "Example 1 : show\n";
                 $text .= "Example 3 : show late\n";
             } else if ($commandArgs[1] == 'counter') {
-                $text = "*Detail for counter command* :\n";
+                $text .= "*Detail for counter command* :\n";
                 $text .= "counter [slack_name] [action_type]\n";
                 $text .= "Example 1 : counter\n";
                 $text .= "Example 3 : counter late\n";
             } else if ($commandArgs[1] == 'sum') {
-                $text = "*Detail for sum command* :\n";
+                $text .= "*Detail for sum command* :\n";
                 $text .= "sum [slack_name]\n";
                 $text .= "Example 1 : sum\n";
             } else if ($commandArgs[1] == 'add') {
-                $text = "*Detail for add command* :\n";
+                $text .= "*Detail for add command* :\n";
                 $text .= "add [slack_name] [action_type] [number]\n";
                 $text .= "Example 1 : add @pierre-yves push-up 20\n";
                 $text .= "Example 2 : add @pierre-yves late 10\n";
